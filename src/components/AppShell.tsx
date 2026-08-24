@@ -142,12 +142,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '248px 1fr' }, minHeight: '100vh', bgcolor: 'background.default' }}>
         <Box sx={{ p: 2, display: { xs: 'none', md: 'block' }, position: 'sticky', top: 0, height: '100vh', bgcolor: SIDEBAR_BG, color: SIDEBAR_TEXT, borderRight: '1px solid', borderColor: SIDEBAR_LINE }}>
           <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2.5 }}>
-            <Box sx={{ width: 42, height: 42, borderRadius: 1.5, bgcolor: SIDEBAR_ACCENT, display: 'grid', placeItems: 'center', boxShadow: '0 6px 16px rgba(31,78,121,.35)' }}>
-              <Box component="img" src="/fountain-icon.png" alt="Fountain DAM" sx={{ width: 34, height: 34, display: 'block' }} />
-            </Box>
-            <Box>
-              <Typography variant="subtitle1" lineHeight={1.1} sx={{ color: SIDEBAR_TEXT }}>Fountain</Typography>
-              <Typography variant="caption" sx={{ color: SIDEBAR_MUTED }}>DAM</Typography>
+            <Box component="img" src="https://alamedapointbg.com/app-icons/fountain-light.png" alt="" sx={{ width: 48, height: 48, flex: '0 0 48px', objectFit: 'contain', display: 'block' }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="subtitle1" lineHeight={1.1} sx={{ color: SIDEBAR_TEXT, fontWeight: 750, letterSpacing: '-.02em' }}>Brand Library</Typography>
+              <Typography variant="caption" sx={{ color: SIDEBAR_MUTED, fontWeight: 650, letterSpacing: '.06em', textTransform: 'uppercase' }}>Brix · APBG</Typography>
             </Box>
           </Stack>
           <BrandScopePicker />
