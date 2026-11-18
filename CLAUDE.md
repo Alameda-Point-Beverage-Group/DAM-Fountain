@@ -76,6 +76,7 @@ supabase/migrations/0001_dam_schema.sql   the dam schema (applied live 2026-07-0
 | `SUPABASE_SERVICE_ROLE_KEY` | functions read/write dam + storage + admin user API |
 | `SUPABASE_ANON_KEY` | token validation in `getAuth` |
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | client login (build-time) |
+| `ARTCRAFT_API_KEY` (secret) | AI Studio's ArtCraft engine (`artcraft.mjs`): Nano Banana Pro / GPT Image / Midjourney / Seedream / FLUX images and Veo / Sora / Kling / Seedance video. Same key as apbg-billing's `/api/artcraft`; its daily probe (`ops.fn_artcraft_health`) watches it. Unset = the engine shows "not connected". `_shared/artcraft.mjs` is a COPY of apbg-billing `netlify/functions/lib/artcraft.mjs` — change both. Jobs log to `ops.artcraft_jobs` (app `fountain-dam`). |
 
 ## Deploy / go-live checklist
 

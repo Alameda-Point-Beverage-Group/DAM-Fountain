@@ -3,12 +3,12 @@ import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControl, FormControlLabel,
   InputLabel, MenuItem, Paper, Select, Slider, Stack, TextField, Typography,
 } from '@mui/material';
-import { Sparkles, Wand2, Save, Download, ShieldAlert, Upload, X, Crop } from 'lucide-react';
+import { Sparkles, Wand2, Save, Download, ShieldAlert, Upload, X, Crop, Film, Image as ImageIcon } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { useIsAdmin } from '../lib/useIsAdmin';
 import { useBrands } from '../lib/useBrands';
 import { useTypes } from '../lib/useTypes';
-import { api } from '../lib/api';
+import { api, type ArtcraftCatalog } from '../lib/api';
 import type { Asset } from '../lib/types';
 import { useToast } from '../components/Toast';
 
@@ -28,6 +28,11 @@ function readFileBase64(file: File): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+// ArtCraft enum values → readable labels ("seedance_2p0" → "Seedance 2.0").
+const nice = (v: string) => v.replace(/(\d)p(\d)/g, '$1.$2').replace(/_/g, ' ').replace(/\b([a-z])/g, (m) => m.toUpperCase());
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const isVideoUrl = (u: string | null) => !!u && /\.(mp4|mov|webm)(\?|$)/i.test(u);
 
 const DISPLAY = "'Space Grotesk', 'DM Sans', system-ui, sans-serif";
 
@@ -89,7 +94,7 @@ function StudioHero() {
             <Typography variant="body2" sx={{ color: '#475569' }}>
               Compose on-brand graphics from your real products.
             </Typography>
-            <Chip size="small" icon={<Sparkles size={13} />} label="Gemini · Nano Banana"
+            <Chip size="small" icon={<Sparkles size={13} />} label="Gemini · ArtCraft (Veo · Sora · Kling · Midjourney · GPT Image)"
               sx={{ fontFamily: DISPLAY, fontWeight: 600, bgcolor: 'rgba(31,78,121,.08)', color: '#1f4e79', border: '1px solid rgba(31,78,121,.18)' }} />
           </Stack>
         </Box>
@@ -116,6 +121,18 @@ export function AIStudioPage() {
   const [useGuidelines, setUseGuidelines] = useState(true);
   const [useBrandImages, setUseBrandImages] = useState(false);
   const [brandImageCount, setBrandImageCount] = useState(3);
+
+  // Engine: Gemini (the original, inline) or ArtCraft (many models + video, async jobs).
+  const [engine, setEngine] = useState<'gemini' | 'artcraft'>('gemini');
+  const [kind, setKind] = useState<'image' | 'video'>('image');
+  const [ac, setAc] = useState<{ configured: boolean; catalog: ArtcraftCatalog } | null>(null);
+  const [acModel, setAcModel] = useState('nano_banana_pro');
+  const [acAspect, setAcAspect] = useState('square');
+  const [acRes, setAcRes] = useState('');
+  const [acSeconds, setAcSeconds] = useState(6);
+  const [acAudio, setAcAudio] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [lastModel, setLastModel] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -147,6 +164,46 @@ export function AIStudioPage() {
     return () => { live = false; clearTimeout(t); };
   }, [search, brandFilter, isAdmin]);
 
+  useEffect(() => {
+    if (isAdmin !== true) return;
+    api.artcraftInfo().then(setAc).catch(() => setAc(null));
+  }, [isAdmin]);
+
+  function pickKind(k: 'image' | 'video') {
+    setKind(k);
+    setAcModel(k === 'video' ? 'veo_3p1_fast' : 'nano_banana_pro');
+    setAcAspect(k === 'video' ? 'wide_sixteen_by_nine' : 'square');
+    setAcRes('');
+    if (k === 'video') setEngine('artcraft');
+  }
+
+  // Start an ArtCraft job and poll it to the end. Returns the result URL.
+  async function runArtcraft(extra: { baseImage?: string; baseMime?: string; baseImageUrl?: string; prompt: string }) {
+    const effectiveBrand = brand || selected[0]?.brand || undefined;
+    const { job_token } = await api.artcraftGenerate({
+      kind, model: acModel, prompt: extra.prompt,
+      assetIds: selected.map((s) => s.id),
+      uploadData: upload?.dataUrl,
+      uploadMime: upload ? upload.dataUrl.slice(5, upload.dataUrl.indexOf(';')) : undefined,
+      baseImage: extra.baseImage, baseMime: extra.baseMime, baseImageUrl: extra.baseImageUrl,
+      brand: effectiveBrand, useBrandGuidelines: useGuidelines,
+      aspect_ratio: acAspect || undefined, resolution: acRes || undefined,
+      duration_seconds: kind === 'video' ? acSeconds : undefined, generate_audio: kind === 'video' ? acAudio : undefined,
+    });
+    const until = Date.now() + (kind === 'video' ? 25 : 6) * 60_000;
+    for (;;) {
+      await sleep(kind === 'video' ? 8000 : 3000);
+      const s = await api.artcraftStatus(job_token);
+      setProgress(`${nice(s.status)}${s.progress != null ? ` · ${s.progress}%` : ''}`);
+      if (s.done) {
+        if (s.status !== 'complete_success' || !s.result_url) throw new Error(`ArtCraft: ${nice(s.status)}${s.error ? ` — ${s.error}` : ''}`);
+        setLastModel(acModel);
+        return s.result_url;
+      }
+      if (Date.now() > until) throw new Error('Still working after a long wait — it will finish on ArtCraft; try again shortly.');
+    }
+  }
+
   // Default the brand used for guidelines to the first selected product's brand.
   useEffect(() => {
     if (!brand && selected[0]?.brand && selected[0].brand !== 'shared') setBrand(selected[0].brand);
@@ -168,6 +225,14 @@ export function AIStudioPage() {
     setBusy(true); setPreview(null); setSavedUrl(null); setRegion(null); setRegionMode(false);
     try {
       const effectiveBrand = brand || selected[0]?.brand || undefined;
+      if (engine === 'artcraft') {
+        setProgress('Queued');
+        const url = await runArtcraft({ prompt: prompt.trim() || (kind === 'video' ? 'Bring this image to life with subtle, natural motion.' : 'Compose an on-brand marketing graphic from the provided images.') });
+        setPreview(url);
+        setSaveBrand(effectiveBrand || 'shared');
+        setSaveTitle(selected[0] ? `${selected[0].title || selected[0].filename} — ${kind === 'video' ? 'video' : 'scene'}` : (kind === 'video' ? 'AI video' : 'AI scene'));
+        return;
+      }
       const r = await api.generateImage({
         assetIds: selected.map((s) => s.id),
         uploadData: upload?.dataUrl,
@@ -183,7 +248,7 @@ export function AIStudioPage() {
       setSaveTitle(selected[0] ? `${selected[0].title || selected[0].filename} — scene` : 'AI scene');
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setProgress(null); }
   }
 
   // Burn a magenta marker onto a copy of the preview so the model edits only that
@@ -193,6 +258,7 @@ export function AIStudioPage() {
       if (!preview) return reject(new Error('no image'));
       if (!region) return resolve({ data: preview, mime: preview.slice(5, preview.indexOf(';')) || 'image/png' });
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -218,6 +284,12 @@ export function AIStudioPage() {
       const instruction = region
         ? `Edit ONLY the area inside the magenta rectangle; do NOT render the rectangle in the output and blend the edit seamlessly with the rest of the image. Change: ${refineText.trim()}`
         : refineText.trim();
+      if (engine === 'artcraft') {
+        const remote = /^https?:/i.test(base.data);
+        const url = await runArtcraft({ prompt: instruction, ...(remote ? { baseImageUrl: base.data } : { baseImage: base.data, baseMime: base.mime }) });
+        setPreview(url); setRefineText(''); setRegion(null); setRegionMode(false);
+        return;
+      }
       const r = await api.generateImage({
         baseImage: base.data,
         baseMime: base.mime,
@@ -233,7 +305,7 @@ export function AIStudioPage() {
       setRefineText('');
       setRegion(null); setRegionMode(false);
     } catch (e) { toast(e instanceof Error ? e.message : String(e)); }
-    finally { setRefining(false); }
+    finally { setRefining(false); setProgress(null); }
   }
 
   // Pointer handlers for drawing the region box over the preview.
@@ -265,6 +337,12 @@ export function AIStudioPage() {
     if (!preview) return;
     setSaving(true);
     try {
+      if (/^https?:/i.test(preview)) {
+        const r = await api.artcraftSave({ url: preview, kind: isVideoUrl(preview) ? 'video' : 'image', title: saveTitle.trim() || undefined, brand: saveBrand, type: saveType, prompt: prompt.trim() || undefined, model: lastModel || undefined });
+        setSavedUrl(r.asset.url);
+        toast('Saved to the library.');
+        return;
+      }
       const r = await api.saveGeneratedImage({ imageData: preview, assetId: selected[0]?.id, title: saveTitle.trim() || undefined, brand: saveBrand, type: saveType });
       setSavedUrl(r.asset.url);
       toast('Saved to the library.');
@@ -366,13 +444,62 @@ export function AIStudioPage() {
 
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
             <Stack spacing={1.25}>
-              <Typography variant="subtitle1" fontWeight={800}>3 · Describe the scene</Typography>
+              <Typography variant="subtitle1" fontWeight={800}>3 · Engine &amp; scene</Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip icon={<ImageIcon size={14} />} label="Image" color={kind === 'image' ? 'primary' : 'default'} onClick={() => pickKind('image')} />
+                <Chip icon={<Film size={14} />} label="Video" color={kind === 'video' ? 'primary' : 'default'} onClick={() => pickKind('video')} disabled={!ac?.configured} />
+                <Box sx={{ flex: 1 }} />
+                {kind === 'image' && (
+                  <FormControl size="small" sx={{ minWidth: 170 }}>
+                    <InputLabel>Engine</InputLabel>
+                    <Select label="Engine" value={engine} onChange={(e) => setEngine(e.target.value as 'gemini' | 'artcraft')}>
+                      <MenuItem value="gemini">Gemini (Nano Banana)</MenuItem>
+                      <MenuItem value="artcraft" disabled={!ac?.configured}>ArtCraft{ac?.configured ? '' : ' — not connected'}</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
+              </Stack>
+              {engine === 'artcraft' && ac?.catalog && (
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <FormControl size="small" sx={{ minWidth: 190 }}>
+                    <InputLabel>Model</InputLabel>
+                    <Select label="Model" value={acModel} onChange={(e) => setAcModel(e.target.value)}>
+                      {(kind === 'video' ? ac.catalog.video_models : ac.catalog.image_models).map((m) => <MenuItem key={m} value={m}>{nice(m)}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <InputLabel>Aspect</InputLabel>
+                    <Select label="Aspect" value={acAspect} onChange={(e) => setAcAspect(e.target.value)}>
+                      {ac.catalog.aspect_ratios.map((a) => <MenuItem key={a} value={a}>{nice(a)}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Resolution</InputLabel>
+                    <Select label="Resolution" value={acRes} onChange={(e) => setAcRes(e.target.value)}>
+                      <MenuItem value="">Default</MenuItem>
+                      {ac.catalog.resolutions.filter((r) => (kind === 'video' ? /_p$/.test(r) : /_k$/.test(r))).map((r) => <MenuItem key={r} value={r}>{nice(r)}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  {kind === 'video' && (
+                    <>
+                      <FormControl size="small" sx={{ minWidth: 100 }}>
+                        <InputLabel>Seconds</InputLabel>
+                        <Select label="Seconds" value={acSeconds} onChange={(e) => setAcSeconds(Number(e.target.value))}>
+                          {[4, 5, 6, 8, 10].map((s) => <MenuItem key={s} value={s}>{s}s</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                      <FormControlLabel control={<Checkbox size="small" checked={acAudio} onChange={(e) => setAcAudio(e.target.checked)} />} label={<Typography variant="body2">Audio</Typography>} />
+                    </>
+                  )}
+                </Stack>
+              )}
+              {kind === 'video' && <Typography variant="caption" color="text.secondary">The first picked image (A) is the opening frame; the rest guide the look. Video takes a few minutes and uses ArtCraft credits.</Typography>}
               <TextField multiline minRows={3} placeholder="e.g. put A on the bar top and B in the blurred background, warm evening light" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
               <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                 {PRESETS.map((p) => <Chip key={p} size="small" variant="outlined" label={p.split(',')[0]} onClick={() => setPrompt(p)} />)}
               </Stack>
               <Button variant="contained" startIcon={busy ? <CircularProgress size={16} /> : <Wand2 size={16} />} disabled={!canGenerate} onClick={generate}>
-                {preview ? 'Regenerate' : 'Generate'}
+                {busy && progress ? progress : preview ? 'Regenerate' : 'Generate'}
               </Button>
             </Stack>
           </Paper>
@@ -382,7 +509,10 @@ export function AIStudioPage() {
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1} alignItems="center"><Sparkles size={18} /><Typography variant="subtitle1" fontWeight={800}>4 · Preview & save</Typography></Stack>
             <Box sx={{ borderRadius: 1, border: '1px dashed', borderColor: 'divider', minHeight: 300, display: 'grid', placeItems: 'center', overflow: 'hidden', bgcolor: 'action.hover' }}>
-              {busy ? <CircularProgress />
+              {busy ? <Stack alignItems="center" spacing={1}><CircularProgress />{progress && <Typography variant="caption" color="text.secondary">{progress}</Typography>}</Stack>
+                : preview && isVideoUrl(preview) ? (
+                  <Box component="video" src={preview} controls autoPlay loop playsInline sx={{ maxWidth: '100%', maxHeight: 460, display: 'block' }} />
+                )
                 : preview ? (
                   <Box sx={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
                     <Box component="img" src={preview} alt="Generated" sx={{ maxWidth: '100%', maxHeight: 460, display: 'block' }} />
@@ -406,6 +536,7 @@ export function AIStudioPage() {
             </Box>
             {preview && (
               <>
+                {!isVideoUrl(preview) && <>
                 <Divider><Typography variant="caption" color="text.secondary">Refine (edit this image)</Typography></Divider>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Button size="small" variant={regionMode ? 'contained' : 'outlined'} startIcon={<Crop size={15} />}
@@ -425,6 +556,7 @@ export function AIStudioPage() {
                   <Button variant="contained" sx={{ whiteSpace: 'nowrap' }} startIcon={refining ? <CircularProgress size={16} /> : <Wand2 size={16} />} disabled={refining || !refineText.trim()} onClick={refine}>Apply change</Button>
                 </Stack>
                 <Typography variant="caption" color="text.secondary">Each change edits the image above. Use <b>Select area</b> to target one spot, or keep products selected on the left (A/B/C) to swap them in.</Typography>
+                </>}
                 <Divider />
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <TextField size="small" label="Title" value={saveTitle} onChange={(e) => setSaveTitle(e.target.value)} sx={{ flex: 1, minWidth: 180 }} />
@@ -443,7 +575,7 @@ export function AIStudioPage() {
                 </Stack>
                 <Stack direction="row" spacing={1}>
                   <Button variant="contained" startIcon={saving ? <CircularProgress size={16} /> : <Save size={16} />} disabled={saving} onClick={save}>Save to library</Button>
-                  <Button variant="outlined" startIcon={<Download size={16} />} component="a" href={preview} download={`${(saveTitle || 'ai-scene').replace(/[^a-z0-9]+/gi, '-')}.png`}>Download</Button>
+                  <Button variant="outlined" startIcon={<Download size={16} />} component="a" href={preview} target="_blank" rel="noopener" download={`${(saveTitle || 'ai-scene').replace(/[^a-z0-9]+/gi, '-')}.${isVideoUrl(preview) ? 'mp4' : 'png'}`}>Download</Button>
                 </Stack>
                 {savedUrl && <Alert severity="success">Saved — it’s in the library and available via the API.</Alert>}
               </>
