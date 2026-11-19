@@ -17,12 +17,12 @@
 //   POST { action:'save', url, kind, title?, brand?, type?, prompt?, model? }
 //                                       → { asset }  (copied into brand-assets + dam.assets, tagged)
 //
-// Key: ARTCRAFT_API_KEY on this site (secret). Auth: DAM contributor, same as
-// uploading / image-generate. Every generation is also logged to
-// ops.artcraft_jobs (app 'fountain-dam') beside the other apps' ArtCraft use,
-// so what the company spends on ArtCraft is one list.
+// Key: ARTCRAFT_API_KEY on this site (secret) — Fountain DAM is the ONLY place
+// ArtCraft lives (Sky, 2026-11-19). Auth: DAM contributor, same as uploading /
+// image-generate. Every generation is logged to dam.artcraft_jobs (who, model,
+// prompt, result) because ArtCraft bills per generation.
 import { preflight, json, requireRole } from './_shared/http.mjs';
-import { db, q, publicUrl, storagePut, SUPABASE_URL, SERVICE_KEY } from './_shared/supabase.mjs';
+import { db, q, publicUrl, storagePut } from './_shared/supabase.mjs';
 import { CATALOG, apiKey, generateImage, generateVideo, jobStatus, upload, summarize, ArtcraftError } from './_shared/artcraft.mjs';
 import { brandStyleText } from './image-generate.mjs';
 
@@ -36,24 +36,14 @@ function safeSeg(v, fallback) {
   return c || fallback;
 }
 
-// Best-effort company-wide log (apbg-billing migration 20261118c). Never fails the call.
+// Best-effort job log in dam.artcraft_jobs (migration 0005). Never fails the call.
 async function logJob(row) {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/artcraft_jobs`, {
-      method: 'POST',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', 'Content-Profile': 'ops', Prefer: 'return=minimal' },
-      body: JSON.stringify(row), signal: AbortSignal.timeout(6000),
-    });
-  } catch (e) { console.warn('[artcraft] log failed', e?.message || e); }
+  try { await db('POST', 'artcraft_jobs', { body: row, prefer: 'return=minimal' }); }
+  catch (e) { console.warn('[artcraft] log failed', e?.message || e); }
 }
 async function patchJob(token, patch) {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/artcraft_jobs?job_token=eq.${encodeURIComponent(token)}`, {
-      method: 'PATCH',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', 'Content-Profile': 'ops', Prefer: 'return=minimal' },
-      body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }), signal: AbortSignal.timeout(6000),
-    });
-  } catch { /* best effort */ }
+  try { await db('PATCH', `artcraft_jobs?job_token=eq.${q(token)}`, { body: { ...patch, updated_at: new Date().toISOString() }, prefer: 'return=minimal' }); }
+  catch { /* best effort */ }
 }
 
 // Library assets → their public URLs (A, B, C… in the order the UI shows them).

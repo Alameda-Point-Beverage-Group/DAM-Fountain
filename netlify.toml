@@ -7,6 +7,15 @@
 [functions."ai-tag-cron"]
   schedule = "*/15 * * * *"
 
+# Daily: is the ArtCraft key still accepted? → ops.sync_log → ops.fn_artcraft_health().
+[functions."artcraft-probe-cron"]
+  schedule = "17 14 * * *"
+
+# AI Studio's ArtCraft calls wait for ArtCraft to accept a job (video downloads
+# its references first) — give them the full synchronous window.
+[functions."artcraft"]
+  timeout = 26
+
 # Clean URL for the read-only public API (token-gated). Must precede the SPA
 # fallback so /api/assets reaches the function, not index.html.
 [[redirects]]
