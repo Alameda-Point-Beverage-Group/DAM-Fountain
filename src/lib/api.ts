@@ -31,6 +31,8 @@ async function call<T>(path: string, init: RequestInit = {}, _retried = false): 
   return data as T;
 }
 
+export interface ArtcraftCatalog { image_models: string[]; video_models: string[]; aspect_ratios: string[]; resolutions: string[]; qualities: string[] }
+
 export interface AssetFilters { q?: string; type?: string; brand?: string; tag?: string; collection?: string; status?: string }
 
 // PUT a file to a signed storage URL with upload progress. fetch() can't report
@@ -151,6 +153,19 @@ export const api = {
     call<{ image: string; saved: boolean; asset?: { id: string; title: string; brand: string; type: string; url: string } }>('/image-generate', { method: 'POST', body: JSON.stringify(body) }),
   saveGeneratedImage: (body: { imageData: string; mime?: string; assetId?: string; title?: string; brand?: string; type?: string }) =>
     call<{ saved: boolean; asset: { id: string; title: string; brand: string; type: string; url: string } }>('/image-generate', { method: 'POST', body: JSON.stringify({ persist: true, ...body }) }),
+  // ArtCraft (second Studio engine — netlify/functions/artcraft.mjs). Async: generate → poll status → save.
+  artcraftInfo: () => call<{ configured: boolean; catalog: ArtcraftCatalog }>('/artcraft'),
+  artcraftGenerate: (body: {
+    kind: 'image' | 'video'; model: string; prompt: string;
+    assetIds?: string[]; imageUrls?: string[]; uploadData?: string; uploadMime?: string;
+    baseImage?: string; baseMime?: string; baseImageUrl?: string;
+    brand?: string; useBrandGuidelines?: boolean;
+    aspect_ratio?: string; resolution?: string; quality?: string; duration_seconds?: number; generate_audio?: boolean;
+  }) => call<{ job_token: string }>('/artcraft', { method: 'POST', body: JSON.stringify({ action: 'generate', ...body }) }),
+  artcraftStatus: (job_token: string) =>
+    call<{ status: string; progress: number | null; done: boolean; result_url: string | null; preview_url: string | null; error: string | null }>('/artcraft', { method: 'POST', body: JSON.stringify({ action: 'status', job_token }) }),
+  artcraftSave: (body: { url: string; kind: 'image' | 'video'; title?: string; brand?: string; type?: string; prompt?: string; model?: string }) =>
+    call<{ saved: boolean; asset: { id: string; title: string; brand: string; type: string; url: string } }>('/artcraft', { method: 'POST', body: JSON.stringify({ action: 'save', ...body }) }),
   listMembers: () => call<{ members: Member[] }>('/members').then((r) => r.members),
   addMember: (email: string, role: string) => call<{ status: string; emailed: boolean; email_error?: string }>('/members', { method: 'POST', body: JSON.stringify({ email, role }) }),
   resendWelcome: (user_id: string) => call<{ ok: boolean; emailed: boolean; email_error?: string }>('/members', { method: 'POST', body: JSON.stringify({ action: 'resend_welcome', user_id }) }),

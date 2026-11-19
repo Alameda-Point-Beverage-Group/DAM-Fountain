@@ -90,7 +90,7 @@ async function brandIdentityImages(brand, limit = 3) {
 }
 
 // Turn a brand's guidelines doc into a compact instruction (colors + fonts + tone).
-async function brandStyleText(brand) {
+export async function brandStyleText(brand) {
   if (!isBrand(brand)) return '';
   const [glRow, brandRow] = await Promise.all([
     db('GET', `brand_guidelines?brand=eq.${q(brand)}&select=doc`).then((r) => r[0]).catch(() => null),
