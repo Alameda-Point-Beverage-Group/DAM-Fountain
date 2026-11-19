@@ -1,12 +1,10 @@
 // ArtCraft Omni API client — AI image + video generation (Seedance, Kling, Veo,
 // Sora, Nano Banana, GPT Image, FLUX, Midjourney, Seedream, …) on one key.
 //
-// THE KEY: env ARTCRAFT_API_KEY, marked secret (Sky, 2026-11-18). Never in a
-// repo, never in a browser. apbg-billing holds it for /api/artcraft (and its
-// daily probe, ops.fn_artcraft_health, watches the key for both sites).
-// Fountain DAM holds its OWN copy of the key (ARTCRAFT_API_KEY, secret, on the
-// fountain-dam Netlify site). This file is a COPY of apbg-billing
-// netlify/functions/lib/artcraft.mjs — change both together.
+// THE KEY: env ARTCRAFT_API_KEY on the fountain-dam Netlify site, marked secret
+// (Sky, 2026-11-18). Never in a repo, never in a browser. Fountain DAM is the one
+// home for ArtCraft (Sky, 2026-11-19): the AI Studio (netlify/functions/artcraft.mjs)
+// and the CLI (scripts/artcraft.mjs) both use this client.
 //
 // API reference: https://storyteller-docs.artcraft.team/ (source:
 // github.com/storytold/artcraft-services, _docs/omni_api/artcraft_omni_api.md).
@@ -14,8 +12,8 @@
 // Generation is async: generate → inference_job_token → poll job_status until
 // a terminal state → state.maybe_result.media_links.cdn_url is the file.
 //
-// Health: ops.fn_artcraft_health() reads the daily probe (artcraft-probe-cron.mjs),
-// which uses probeKey() below — a revoked key turns red on the health board.
+// Health: ops.fn_artcraft_health() reads the daily probe (artcraft-probe-cron.mjs on
+// this site), which uses probeKey() below — a revoked key turns red on the health board.
 
 import { randomUUID } from 'node:crypto';
 
@@ -152,7 +150,7 @@ export async function waitFor(token, { intervalMs = 5000, timeoutMs = 20 * 60000
 /** Is the key still accepted? A made-up job token answers 404 to a good key and
  *  401 to a revoked one, and costs no credits. → { ok, status, detail } */
 export async function probeKey(key = apiKey()) {
-  if (!key) return { ok: false, status: 0, detail: 'ARTCRAFT_API_KEY is not set on apbg-billing' };
+  if (!key) return { ok: false, status: 0, detail: 'ARTCRAFT_API_KEY is not set on fountain-dam' };
   try {
     const res = await fetch(`${ARTCRAFT_BASE}/v1/omni_api/job_status/job/jinf_000000000000000000000000000`, {
       headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20000),
