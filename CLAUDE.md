@@ -1,4 +1,4 @@
-> **Architecture handbook:** This repo is part of the multi-repo APBG system documented in [`activespacescience/Skilliosis_Mytosis_Architecture`](https://github.com/activespacescience/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md). When work here touches architecture (new external service, cross-repo dependency, deploy target, MCP/connector, env-var category, new/renamed repo, or gateway proxy route), update `ARCHITECTURE.md` in the same change.
+> **Architecture handbook:** This repo is part of the multi-repo APBG system documented in [`Active-Space-Science-Research-Corp/Skilliosis_Mytosis_Architecture`](https://github.com/Active-Space-Science-Research-Corp/Skilliosis_Mytosis_Architecture/blob/main/ARCHITECTURE.md). When work here touches architecture (new external service, cross-repo dependency, deploy target, MCP/connector, env-var category, new/renamed repo, or gateway proxy route), update `ARCHITECTURE.md` in the same change.
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Fountain DAM** is the in-house **Digital Asset Management** app (brand asset library) for **Alameda Soda + Brix Beverage**, replacing the paid Brandox service. It's the successor to the single-page "Fountain" prototype that lived in `apbg-billing/public/fountain.html` — now its own app with tagging, collections, share links, and users.
 
-- **Repo:** `skypace/dam-fountain`
+- **Repo:** `Alameda-Point-Beverage-Group/DAM-Fountain`
 - **Stack:** React 18 + Vite 5 + TypeScript + MUI v6 (SPA) · Netlify Functions (ESM `.mjs`) · Supabase (shared project `gfsdpwiqzshhexkofiif`)
 - **Storage:** public Supabase bucket **`brand-assets`** (shared with the old page; no migration needed)
 - **Metadata:** the **`dam`** Postgres schema (this repo owns it)
