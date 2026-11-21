@@ -1,8 +1,14 @@
 import { db, q, publicUrl, SUPABASE_URL, BUCKET } from './_shared/supabase.mjs';
 
-// Batch AI-tagger. Runs on a schedule (ongoing coverage for new uploads) and is
-// also HTTP-callable so a backfill can be driven to completion. For each image
-// with no description yet, Claude vision produces keywords + alt text.
+// Batch AI-tagger. Runs on a schedule (netlify.toml, every 15 min) for ongoing
+// coverage of new uploads. For each image with no description yet, Claude
+// vision produces keywords + alt text — every run spends Anthropic calls.
+//
+// It is NOT a public endpoint. Netlify refuses HTTP calls to a scheduled
+// function (verified 403 in production, 2026-11-21), and this file refuses too,
+// in case that ever changes: a run must be the scheduler's (its body carries
+// `next_run`) or carry `x-ai-tag-secret` equal to the AI_TAG_CRON_SECRET env
+// var (a manual backfill). With AI_TAG_CRON_SECRET unset, only the scheduler runs it.
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const MODEL = 'claude-haiku-4-5-20251001';
 const PROMPT = 'You are cataloguing a beverage-brand marketing asset for a digital asset library (Alameda Soda + Brix Beverage). '
@@ -56,7 +62,33 @@ async function tagOne(asset) {
   await db('PATCH', `assets?id=eq.${q(asset.id)}`, { body: { description: description || asset.filename || 'asset', updated_at: new Date().toISOString() }, prefer: 'return=minimal' });
 }
 
+const CRON_SECRET = process.env.AI_TAG_CRON_SECRET || '';
+
+function headerOf(event, name) {
+  const h = event?.headers || {};
+  const k = Object.keys(h).find((x) => x.toLowerCase() === name);
+  return k ? String(h[k]) : '';
+}
+
+function isScheduledRun(event) {
+  try {
+    const raw = event?.isBase64Encoded ? Buffer.from(event.body || '', 'base64').toString('utf8') : event?.body;
+    const body = JSON.parse(raw || '{}');
+    return typeof body?.next_run === 'string' && body.next_run.length > 0;
+  } catch { return false; }
+}
+
+function sameSecret(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 export async function handler(event) {
+  if (!isScheduledRun(event) && !sameSecret(headerOf(event, 'x-ai-tag-secret'), CRON_SECRET)) {
+    return { statusCode: 403, body: JSON.stringify({ error: 'scheduled only' }) };
+  }
   if (!ANTHROPIC_KEY) return { statusCode: 501, body: JSON.stringify({ error: 'ANTHROPIC_API_KEY not set' }) };
   const started = Date.now();
   const debug = event?.queryStringParameters?.debug === '1';

@@ -3,7 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Ongoing AI tagging of newly-uploaded images (also HTTP-callable for backfill).
+# Ongoing AI tagging of newly-uploaded images. Scheduled only: Netlify refuses
+# HTTP calls to it, and the function itself requires the scheduler's body or the
+# AI_TAG_CRON_SECRET header (manual backfill).
 [functions."ai-tag-cron"]
   schedule = "*/15 * * * *"
 
